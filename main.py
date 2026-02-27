@@ -55,24 +55,21 @@ async def start(message: Message):
         ])
         await message.answer("❌ Kanalga a'zo bo‘ling.", reply_markup=keyboard)
         return
-
     await message.answer("Test kodi va javobni yuboring.\nMasalan: TEST1 AABBCC")
 
-# ADD TEST (VAQT IXTiyoriy)
+# ADD TEST
 @dp.message(Command("addtest"))
 async def add_test(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     try:
         parts = message.text.split()
-
         if len(parts) < 3:
             await message.answer("Format: /addtest TEST1 AABBCC [daqiqada]")
             return
 
         code = parts[1].upper()
         raw_answers = parts[2]
-
         answers = "".join(re.findall(r"[A-Da-d]", raw_answers)).upper()
 
         test_data = {
@@ -90,11 +87,10 @@ async def add_test(message: Message):
         save_json(DATA_FILE, TESTS)
 
         await message.answer(f"✅ Test qo‘shildi\n📊 Savollar: {len(answers)} ta")
-
     except:
         await message.answer("Format: /addtest TEST1 AABBCC [daqiqada]")
 
-# TOP (BALL + TEZLIK)
+# TOP
 @dp.message(Command("top"))
 async def top_results(message: Message):
     try:
@@ -114,19 +110,94 @@ async def top_results(message: Message):
     )
 
     text = "🏆 TOP 10\n\n"
-
     for i, user in enumerate(sorted_results[:10], start=1):
-        medal = ""
-        if i == 1:
-            medal = "🥇 "
-        elif i == 2:
-            medal = "🥈 "
-        elif i == 3:
-            medal = "🥉 "
-
+        medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
         text += f"{medal}{i}. {user['name']} - {user['score']} ({user['duration']}s)\n"
 
     await message.answer(text)
+
+# CURRENT PDF
+@dp.message(Command("current"))
+async def current_results(message: Message):
+    try:
+        _, code = message.text.split()
+        code = code.upper()
+    except:
+        await message.answer("Format: /current TEST1")
+        return
+
+    if code not in RESULTS:
+        await message.answer("❌ Hali natija yo‘q")
+        return
+
+    sorted_results = sorted(
+        RESULTS[code],
+        key=lambda x: (-x["percent"], x["duration"])
+    )
+
+    file_name = f"{code}_current.pdf"
+    doc = SimpleDocTemplate(file_name)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph(f"{code} - JORIY HOLAT", styles["Heading2"]))
+    elements.append(Spacer(1, 0.3 * inch))
+
+    for i, user in enumerate(sorted_results, start=1):
+        text = f"{i}. {user['name']} - {user['score']} - {user['duration']}s"
+        elements.append(Paragraph(text, styles["Normal"]))
+        elements.append(Spacer(1, 0.2 * inch))
+
+    doc.build(elements)
+    await message.answer_document(FSInputFile(file_name))
+
+# FINAL RESULTS PDF
+@dp.message(Command("results"))
+async def final_results(message: Message):
+    try:
+        _, code = message.text.split()
+        code = code.upper()
+    except:
+        await message.answer("Format: /results TEST1")
+        return
+
+    if code not in TESTS:
+        await message.answer("❌ Test topilmadi")
+        return
+
+    test_data = TESTS[code]
+
+    if test_data["end_time"]:
+        end_time = datetime.strptime(test_data["end_time"], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() < end_time:
+            await message.answer("⏳ Test hali tugamagan.")
+            return
+
+    if code not in RESULTS:
+        await message.answer("❌ Natija yo‘q")
+        return
+
+    sorted_results = sorted(
+        RESULTS[code],
+        key=lambda x: (-x["percent"], x["duration"])
+    )
+
+    file_name = f"{code}_FINAL_RESULTS.pdf"
+    doc = SimpleDocTemplate(file_name)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph(f"{code} - YAKUNIY NATIJA", styles["Heading2"]))
+    elements.append(Spacer(1, 0.3 * inch))
+
+    for i, user in enumerate(sorted_results, start=1):
+        medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else ""
+        text = f"{medal}{i}. {user['name']} - {user['score']} - {user['duration']}s"
+        elements.append(Paragraph(text, styles["Normal"]))
+        elements.append(Spacer(1, 0.2 * inch))
+
+    doc.build(elements)
+    await message.answer_document(FSInputFile(file_name))
 
 # TEST TEKSHIRISH
 @dp.message()
@@ -152,7 +223,6 @@ async def check_test(message: Message):
     test_data = TESTS[code]
     correct = test_data["answers"]
 
-    # vaqt tugaganmi
     if test_data["end_time"]:
         end_time = datetime.strptime(test_data["end_time"], "%Y-%m-%d %H:%M:%S")
         if datetime.now() > end_time:
