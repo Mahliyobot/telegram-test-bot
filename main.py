@@ -15,7 +15,7 @@ API_TOKEN = os.getenv("BOT_TOKEN")
 
 ADMIN_ID = 7075322783
 CHANNEL_ID = -1002055415694
-CHANNEL_LINK = "https://t.me/your_channel_username"
+CHANNEL_LINK = "https://t.me/Mahliyo_Odilboyeva1"
 
 DATA_FILE = "tests.json"
 RESULT_FILE = "results.json"
