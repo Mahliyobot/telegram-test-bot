@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import os
-import time
+import json
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, FSInputFile
-from aiogram.filters import CommandStart
+from aiogram.filters import Command
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -14,93 +14,110 @@ API_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7075322783
 CHANNEL_ID = -1002055415694
 
-TESTS = {
-    "TEST1": "AABBCC",
-    "TEST2": "ABCABC",
-    "TEST3": "CCBBAA"
-}
-
-TEST_TIME = 120  # sekund
-
-user_start_time = {}
+DATA_FILE = "tests.json"
+RESULT_FILE = "results.json"
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# ====== START ======
-@dp.message(CommandStart())
-async def start_handler(message: Message):
-    member = await bot.get_chat_member(CHANNEL_ID, message.from_user.id)
+def load_json(file):
+    try:
+        with open(file, "r") as f:
+            return json.load(f)
+    except:
+        return {}
 
-    if member.status not in ["member", "administrator", "creator"]:
-        await message.answer("❌ Test ishlash uchun kanalga a'zo bo‘ling.")
+def save_json(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f)
+
+TESTS = load_json(DATA_FILE)
+RESULTS = load_json(RESULT_FILE)
+
+async def check_subscription(user_id):
+    try:
+        member = await bot.get_chat_member(CHANNEL_ID, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+@dp.message(Command("start"))
+async def start(message: Message):
+    if not await check_subscription(message.from_user.id):
+        await message.answer("❌ Kanalga a'zo bo‘ling.")
         return
+    await message.answer("Test kodi va javobni yuboring.\nMasalan: TEST1 AABBCC")
 
-    await message.answer("Test kodini va javoblaringizni yuboring.\nMasalan: TEST1 AABBCC")
-
-# ====== TEST ISHLASH ======
-@dp.message()
-async def check_test(message: Message):
-    text = message.text.strip().split()
-
-    if len(text) != 2:
-        return
-
-    test_code = text[0].upper()
-    user_answers = text[1].upper()
-
-    if test_code not in TESTS:
-        await message.answer("❌ Test kodi topilmadi.")
-        return
-
-    # Vaqtni tekshirish
-    if message.from_user.id not in user_start_time:
-        user_start_time[message.from_user.id] = time.time()
-
-    if time.time() - user_start_time[message.from_user.id] > TEST_TIME:
-        await message.answer("⏰ Vaqt tugadi!")
-        return
-
-    correct_answers = TESTS[test_code]
-
-    correct = 0
-    for i in range(min(len(user_answers), len(correct_answers))):
-        if user_answers[i] == correct_answers[i]:
-            correct += 1
-
-    result_text = f"""
-TEST KODI: {test_code}
-ISM: {message.from_user.full_name}
-TO‘G‘RI JAVOB: {correct}/{len(correct_answers)}
-"""
-
-    file_name = f"{message.from_user.id}_{test_code}.pdf"
-    doc = SimpleDocTemplate(file_name)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    elements.append(Paragraph("SERTIFIKAT", styles["Heading1"]))
-    elements.append(Spacer(1, 0.5 * inch))
-    elements.append(Paragraph(result_text, styles["Normal"]))
-    elements.append(Spacer(1, 0.5 * inch))
-
-    doc.build(elements)
-
-    await message.answer_document(FSInputFile(file_name))
-
-# ====== ADMIN BUYRUQLARI ======
-@dp.message(lambda message: message.from_user.id == ADMIN_ID and message.text.startswith("/addtest"))
+@dp.message(Command("addtest"))
 async def add_test(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
     try:
         _, code, answers = message.text.split()
         TESTS[code.upper()] = answers.upper()
-        await message.answer(f"✅ {code} qo‘shildi.")
+        save_json(DATA_FILE, TESTS)
+        await message.answer("✅ Test qo‘shildi")
     except:
-        await message.answer("Format: /addtest TEST4 ABCABC")
+        await message.answer("Format: /addtest TEST1 AABBCC")
 
-# ====== MAIN ======
+@dp.message(Command("results"))
+async def get_results(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        _, code = message.text.split()
+        code = code.upper()
+        if code not in RESULTS:
+            await message.answer("Natija yo‘q")
+            return
+
+        file_name = f"{code}_results.pdf"
+        doc = SimpleDocTemplate(file_name)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        for user in RESULTS[code]:
+            elements.append(Paragraph(user, styles["Normal"]))
+            elements.append(Spacer(1, 0.2 * inch))
+
+        doc.build(elements)
+        await message.answer_document(FSInputFile(file_name))
+    except:
+        await message.answer("Format: /results TEST1")
+
+@dp.message()
+async def check_test(message: Message):
+    if not await check_subscription(message.from_user.id):
+        await message.answer("❌ Kanalga a'zo bo‘ling.")
+        return
+
+    try:
+        code, answers = message.text.split()
+        code = code.upper()
+        answers = answers.upper()
+    except:
+        return
+
+    if code not in TESTS:
+        await message.answer("❌ Test topilmadi")
+        return
+
+    correct = TESTS[code]
+    score = sum(1 for a, b in zip(answers, correct) if a == b)
+    percent = round(score / len(correct) * 100, 2)
+
+    result_text = f"{message.from_user.full_name} - {score}/{len(correct)} ({percent}%)"
+
+    if code not in RESULTS:
+        RESULTS[code] = []
+
+    RESULTS[code].append(result_text)
+    save_json(RESULT_FILE, RESULTS)
+
+    await message.answer(f"Natija: {score}/{len(correct)} ({percent}%)")
+
 async def main():
     await dp.start_polling(bot)
 
